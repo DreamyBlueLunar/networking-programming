@@ -1,27 +1,82 @@
+// implementation of reactor
+// reactor.c
 #include <string.h>
 #include <errno.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <stdio.h>
 #include <unistd.h>
-#include <sys/poll.h>
 #include <sys/epoll.h>
 
-#define BUFFER_LEN 128
+#define BUFFER_LEN 1024
+#define DEBUG_LEVEL 0
+#define ADD 1
+#define MOD 0
 
+typedef int (*RCALLBACK)(int fd);
+
+// conn, fd, buffer, callback
 struct conn_item {
 	int fd;
-	char buffer[BUFFER_LEN];
-	int idx;
+	
+	char rbuffer[BUFFER_LEN]; // read
+	int rlen;
+	
+	char wbuffer[BUFFER_LEN]; // write
+	int wlen;
+
+	union {
+		RCALLBACK accept_callback;
+		RCALLBACK recv_callback;
+	} recv_t;
+	RCALLBACK send_callback;
 };
 
 struct conn_item conn_list[1024];
+struct epoll_event ev;
+
+int epfd = 0, sockfd = 0;
+
+/* sockfd triggers EPOLLIN -> accept_cb()
+ * params:
+ * fd: sockfd
+ */
+int accept_cb(int fd);
+
+/* clientfd triggers EPOLLIN -> recv_cb()
+ * params:
+ * fd: clientfd
+ */
+int recv_cb(int fd);
+
+/* clientfd triggers EPOLLOUT -> send_cb()
+ * params:
+ * fd: clientfd
+ */
+int send_cb(int fd);
+
+/* set event
+ * params:
+ * fd: file describtor
+ * op: operation
+ * event: EPOLLIN / EPOLLOUT
+ * return:
+ * success -> return 1
+ * add error -> return -1
+ * mod error -> return 0
+ */
+int set_event(int fd, int op, int event);
 
 /*
- * reactor implementation
+ * http server implementation
  */
 int main(void) {
-	int sockfd = socket(AF_INET, SOCK_STREAM, 0);
+	sockfd = socket(AF_INET, SOCK_STREAM, 0);
+	if (-1 == sockfd) {
+		perror("create sockfd");
+		return -1;
+	}
+	
 	struct sockaddr_in server_addr;
 	memset(&server_addr, 0, sizeof(struct sockaddr_in));
 	
@@ -34,64 +89,174 @@ int main(void) {
  		return -1;
 	}
 
-	listen(sockfd, 10);
+	listen(sockfd, 128);
 
-	int epfd = epoll_create(1);
+	conn_list[sockfd].fd = sockfd;
+	conn_list[sockfd].recv_t.accept_callback = accept_cb;
 
-	struct epoll_event ev;
-//	ev.events = EPOLLIN | EPOLLET; 	// ET
-	ev.events = EPOLLIN;			// LT
-	ev.data.fd = sockfd;
+	epfd = epoll_create(1);
+	if (-1 == epfd) {
+		perror("create epoll");
+		return -1;
+	}
 	
-	epoll_ctl(epfd, EPOLL_CTL_ADD, sockfd, &ev);
+	if (1 != set_event(sockfd, ADD, EPOLLIN)) {
+		perror("add sockfd");
+		return -1;
+	}
 
 	struct epoll_event events[1024] = {0};
+	memset(&events, 0, sizeof events);
 	
-	printf("this is tcp-server-epoll.\n");
+	printf("this is http-server-test.\n");
 
-	while (1) {
-		printf("tcp_server@epoll:/$ ");
+	while (1) { // main loop
+		printf("http_server@test:/$ ");
 		fflush(stdout);
 
 		int nready = epoll_wait(epfd, events, 1024, -1);
 		for (int i = 0; i < nready; i ++) {
 			int connfd = events[i].data.fd;
-			if (sockfd == connfd) {
-
-				struct sockaddr_in client_addr;
-				socklen_t len = sizeof client_addr;
-
-				int clientfd = accept(sockfd, (struct sockaddr*)&client_addr, &len);
-				ev.events = EPOLLIN;
-				ev.data.fd = clientfd;
-				
-				epoll_ctl(epfd, EPOLL_CTL_ADD, clientfd, &ev);
-
-				conn_list[clientfd].fd = clientfd;
-				memset(conn_list[clientfd].buffer, 0, BUFFER_LEN);
-				conn_list[clientfd].idx = 0;
-
-				printf("sockfd: %d, clientfd: %d\n", sockfd, clientfd);
 			
-			} else if (events[i].events & EPOLLIN) {
-				char *buffer = conn_list[connfd].buffer;
-				int idx = conn_list[connfd].idx;
-				int cnt = recv(connfd, buffer, BUFFER_LEN - idx, 0); // if client calls close(), recv() returns 0.
+			if (events[i].events & EPOLLIN) { // if sockfd triggers EPOLLIN, 
+						//we call accept_cb() successfully here,cause we set the union's value correctly.
 
-				if (0 == cnt) {
-					perror("client disconnection");
-					epoll_ctl(epfd, EPOLL_CTL_DEL, connfd, NULL);					
-					close(i);
-					continue;
-				}
-				conn_list[connfd].idx += cnt;
+				int count = conn_list[connfd].recv_t.recv_callback(connfd);
 
-				send(i, buffer, cnt, 0);
-				printf("sockfd: %d, clientfd: %d, cnt: %d, buffer: %s\n", 
-						sockfd, connfd, cnt, buffer);
+			} else if (events[i].events & EPOLLOUT) {
+
+				int count = conn_list[connfd].send_callback(connfd);
+			 
 			}
 		}
 	}
 
 	return 0;
 }
+
+
+int accept_cb(int fd) {
+	struct sockaddr_in client_addr;
+	socklen_t len = sizeof client_addr;
+
+	int clientfd = accept(fd, (struct sockaddr*)&client_addr, &len);
+	if (0 > clientfd) {
+		perror("accept");
+		return -1;
+	}
+	
+	if (1 != set_event(clientfd, ADD, EPOLLIN)) {
+		perror("add clientfd");
+		return -1;
+	}
+
+	conn_list[clientfd].fd = clientfd;
+	memset(conn_list[clientfd].rbuffer, 0, BUFFER_LEN);
+	memset(conn_list[clientfd].wbuffer, 0, BUFFER_LEN);
+	conn_list[clientfd].rlen = 0;
+	conn_list[clientfd].wlen = 0;
+	conn_list[clientfd].recv_t.recv_callback = recv_cb;
+	conn_list[clientfd].send_callback = send_cb;
+
+#if DEBUG_LEVEL 
+
+	printf("sockfd: %d, clientfd: %d\n", fd, clientfd);
+
+#else
+
+	printf("accept done\n");
+
+#endif
+
+	return clientfd;
+}
+
+
+int recv_cb(int fd) {
+	// recv_cb();
+	char *buffer = conn_list[fd].rbuffer;
+	int idx = conn_list[fd].rlen;
+	int cnt = recv(fd, buffer + idx, BUFFER_LEN - idx, 0); // if client calls close(), recv() returns 0.
+
+	if (0 == cnt) {
+		perror("client disconnection");
+		epoll_ctl(epfd, EPOLL_CTL_DEL, fd, NULL);
+		close(fd);
+		return -1;
+	}
+	conn_list[fd].rlen += cnt;
+	// operations
+	memcpy(conn_list[fd].wbuffer, conn_list[fd].rbuffer, conn_list[fd].rlen);
+	conn_list[fd].wlen = conn_list[fd].rlen;
+
+	if (1 != set_event(fd, MOD, EPOLLOUT)) {
+		perror("modify clientfd EPOLLOUT");
+		return -1;
+	}
+
+#if DEBUG_LEVEL
+
+	printf("recv <-- sockfd: %d, clientfd: %d, cnt: %d, buffer: %s\n",
+			sockfd, fd, cnt, conn_list[fd].rbuffer);
+
+#else
+		
+	printf("recv done\n");
+
+#endif
+
+	return cnt;
+}
+
+
+int send_cb(int fd) {
+	int cnt = send(fd, conn_list[fd].wbuffer, conn_list[fd].wlen, 0);
+	if (-1 == cnt) {
+		perror("send");
+		return -1;
+	}
+	
+	if (1 != set_event(fd, MOD, EPOLLIN)) {
+		perror("modify clientfd EPOLLOUT");
+		return -1;
+	}
+
+
+#if DEBUG_LEVEL
+
+	printf("send --> sockfd: %d, clientfd: %d, cnt: %d, buffer: %s\n",
+			sockfd, fd, cnt, conn_list[fd].wbuffer);
+#else
+			
+	printf("send done\n");
+
+#endif	
+	
+	return cnt;
+}
+
+
+int set_event(int fd, int op, int event) {
+	if (op == 1) { // 1 add, 0 mod
+
+		ev.events = event;
+		ev.data.fd = fd;
+		
+		if (-1 == epoll_ctl(epfd, EPOLL_CTL_ADD, fd, &ev) ) {
+			return -1;
+		}
+
+	} else {
+
+		ev.events = event;
+		ev.data.fd = fd;
+		
+		if (-1 == epoll_ctl(epfd, EPOLL_CTL_MOD, fd, &ev) ) {
+			return 0;
+		}
+
+	}
+
+	return 1;
+}
+

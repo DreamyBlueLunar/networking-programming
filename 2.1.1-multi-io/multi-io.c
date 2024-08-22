@@ -12,7 +12,7 @@
 #define MULTI_PTHREAD	0
 #define SELECT_MODE		0
 #define POLL_MODE		0
-#define EPOLL_MODE		1
+#define EPOLL_MODE		0
 
 void* client_thread(void* arg); // create linux thread!!!!!!!!!!
 
@@ -43,6 +43,8 @@ int main(void) {
 	int clientfd = accept(sockfd, (struct sockaddr*)&client_addr, &len);
 	printf("accepted\n");
 
+	printf("tcp_server@single_mode:/$ ");
+
 	char buffer[128] = {0};
 	int cnt = recv(clientfd, buffer, sizeof buffer, 0);
 
@@ -57,8 +59,11 @@ int main(void) {
 
 
 #elif LOOP_MODE
+		
+	while (1) {
+		printf("tcp_server@loop_mode:/$ ");
+		fflush(stdout);
 
-	while (1) { // obviously, the logic is wrong.
 		char buffer[128] = {0};
 		int cnt = recv(clientfd, buffer, sizeof buffer, 0); // if client calls close(), recv() returns 0.
 
@@ -72,13 +77,12 @@ int main(void) {
 				sockfd, clientfd, cnt, buffer);
 	}
 	
-	printf("now we are before getchar().\n");
 	getchar();
 	close(clientfd);
 
 # elif MULTI_PTHREAD
 
-	while (1) { // obviously, the logic is wrong.
+	while (1) {
 		struct sockaddr_in client_addr;
 		socklen_t len = sizeof client_addr;
 		int clientfd = accept(sockfd, (struct sockaddr*)&client_addr, &len);
@@ -108,6 +112,7 @@ int main(void) {
 	while (1) {
 		printf("tcp_server@select:/$ ");
 		fflush(stdout);
+
 		rset = rfds;
 
 		int nready = select(maxfd + 1, &rset, NULL, NULL, NULL); // nready -> numbers of events
@@ -156,6 +161,7 @@ int main(void) {
 	while (1) {
 		printf("tcp_server@poll:/$ ");
 		fflush(stdout);
+
 		int nready = poll(fds, maxfd + 1, -1); // similar to select, 
 
 		if (fds[sockfd].revents & POLLIN) {
@@ -166,7 +172,7 @@ int main(void) {
 
 			printf("sockfd: %d\n", sockfd);
 
-			fds[clientfd].fd	= clientfd;
+			fds[clientfd].fd	 = clientfd;
 			fds[clientfd].events = POLLIN;
 
 			maxfd = clientfd;
@@ -204,7 +210,7 @@ int main(void) {
 //	ev.events = EPOLLIN | EPOLLET; 	// ET
 	ev.events = EPOLLIN;			// LT
 	ev.data.fd = sockfd;
-	
+
 	epoll_ctl(epfd, EPOLL_CTL_ADD, sockfd, &ev);
 
 	struct epoll_event events[1024] = {0};
@@ -237,7 +243,7 @@ int main(void) {
 
 				if (0 == cnt) {
 					perror("client disconnection");
-					epoll_ctl(epfd, EPOLL_CTL_DEL, connfd, NULL);					
+					epoll_ctl(epfd, EPOLL_CTL_DEL, connfd, NULL);				
 					close(i);
 					continue;
 				}
@@ -252,7 +258,7 @@ int main(void) {
 		
 #else
 
-	printf("There are 6 versions of tcp server's implementation.\nModify the macros to run it.\nciao~");
+	printf("There are 6 versions of tcp server's implementations.\nModify the macros to run it.\nciao~");
 
 #endif
 
@@ -263,7 +269,10 @@ int main(void) {
 void* client_thread(void* arg) {
 	int clientfd = *(int*)arg;
 
-	while (1) { // obviously, the logic is wrong.
+	printf("this is tcp-server-multi-thread.\n");
+		
+	while (1) {
+		printf("tcp_server@multi-thread:/$ ");
 		char buffer[128] = {0};
 		int cnt = recv(clientfd, buffer, sizeof buffer, 0); // if client calls close(), recv() returns 0.
 
@@ -278,8 +287,3 @@ void* client_thread(void* arg) {
 
 	close(clientfd);
 }
-
-
-
-
-
