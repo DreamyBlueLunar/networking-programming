@@ -10,11 +10,11 @@
 #include <fcntl.h>
 
 #define BUFFER_LEN 1024
-#define DEBUG_LEVEL 0
+#define DEBUG_LEVEL 1
 #define ADD 1
 #define MOD 0
 #define ENABLE_HTTP_RESPONSE 1
-#define ROOT "/home/telecaster/network_programming/2.1.1-multi-io"
+#define ROOT "/home/telecaster/networking-programming/2.1.1-multi-io"
 
 typedef int (*RCALLBACK)(int fd);
 
@@ -74,56 +74,14 @@ int send_cb(int fd);
  */
 int set_event(int fd, int op, int event);
 
+#if ENABLE_HTTP_RESPONSE
 // http://192.168.113.128/index.html
 // GET /index.html HTTP/1.1
 // http://192.168.113.128/abc.html
 // GET /abc.html HTTP/1.1
-int http_request(connection_t* conn) {
+int http_request(connection_t* conn);
 
-	// conn->rbuffer
-	// conn->rlen
-	
-	return 0;
-}
-
-#if ENABLE_HTTP_RESPONSE
-int http_response(connection_t* conn) {
-#if 0
-	conn->wlen = sprintf(conn->wbuffer, 
-		"HTTP/1.1 301 Moved Permanently\r\n"
-		"Server: JSP3/2.0.14\r\n"
-		"Date: Thu, 22 Aug 2024 07:45:31 GMT\r\n"
-		"Content-Type: text/html\r\n"
-		"Content-Length: 168\r\n"
-		"Connection: keep-alive\r\n"
-		"Location: https://programmercarl.com/\r\n"
-		"X-Cache-Status: MISS\r\n"
-		"\r\n"
-		"[HTTP response 1/1]"
-		"[Time since request: 0.016910000 seconds]"
-		"[Request in frame: 46]"
-		"[Request URI: http://programmercarl.com/]"
-		"File Data: 168 bytes");
-#else
-
-	int filefd = open("index.html", O_RDONLY);
-
-	struct stat stat_buf;
-	fstat(filefd, &stat_buf);
-	
-	conn->wlen = sprintf(conn->wbuffer, 
-			"HTTP/1.1 200 OK\r\n"
-			"Accept-Ranges: bytes\r\n"
-			"Content-Length: %ld\r\n"
-			"Content-Type: text/html\r\n"
-			"Date: Thu, 22 Aug 2024 07:45:31 GMT\r\n\r\n", stat_buf.st_size);
-	int cnt = read(filefd, conn->wbuffer + conn->wlen, BUFFER_LEN - conn->wlen);
-	conn->wlen += cnt;
-
-#endif
-
-	return conn->wlen;
-}
+int http_response(connection_t* conn);
 #endif
 
 /*
@@ -167,11 +125,9 @@ int main(void) {
 	struct epoll_event events[1024] = {0};
 	memset(&events, 0, sizeof events);
 	
-	printf("this is http-server-test.\n");
+	printf("this is http-server-demo.\n");
 
 	while (1) { // main loop
-		printf("http_server@test:/$ ");
-		fflush(stdout);
 
 		int nready = epoll_wait(epfd, events, 1024, -1);
 		for (int i = 0; i < nready; i ++) {
@@ -221,10 +177,6 @@ int accept_cb(int fd) {
 
 	printf("sockfd: %d, clientfd: %d\n", fd, clientfd);
 
-#else
-
-	printf("accept done\n");
-
 #endif
 
 	return clientfd;
@@ -238,11 +190,21 @@ int recv_cb(int fd) {
 	int cnt = recv(fd, buffer + idx, BUFFER_LEN - idx, 0); // if client calls close(), recv() returns 0.
 
 	if (0 == cnt) {
-		perror("client disconnection");
+		perror("recv returns  0");
 		epoll_ctl(epfd, EPOLL_CTL_DEL, fd, NULL);
 		close(fd);
 		return -1;
-	}
+	} else if (cnt < 0) {  
+        // 接收数据时发生错误  
+        if (errno == ECONNRESET) {  
+            perror("recv returns -1");  
+        } else {  
+            perror("recv error");  
+        }  
+        epoll_ctl(epfd, EPOLL_CTL_DEL, fd, NULL);  
+        close(fd);
+        return -1;  
+    }  
 	conn_list[fd].rlen += cnt;
 
 	// operations
@@ -256,12 +218,8 @@ int recv_cb(int fd) {
 
 #if DEBUG_LEVEL
 
-	printf("recv <-- sockfd: %d, clientfd: %d, cnt: %d, buffer: %s\n",
+	printf("recv <-- sockfd: %d, clientfd: %d, cnt: %d, buffer: \n%s\n",
 			sockfd, fd, cnt, conn_list[fd].rbuffer);
-
-#else
-		
-	printf("recv done\n");
 
 #endif
 
@@ -270,6 +228,8 @@ int recv_cb(int fd) {
 
 
 int send_cb(int fd) {
+	char send_buf[BUFFER_LEN] = {0};
+	memcpy(send_buf, conn_list[fd].wbuffer, conn_list[fd].wlen);
 	int cnt = send(fd, conn_list[fd].wbuffer, conn_list[fd].wlen, 0);
 	if (-1 == cnt) {
 		perror("send");
@@ -284,11 +244,8 @@ int send_cb(int fd) {
 
 #if DEBUG_LEVEL
 
-	printf("send --> sockfd: %d, clientfd: %d, cnt: %d, buffer: %s\n",
-			sockfd, fd, cnt, conn_list[fd].wbuffer);
-#else
-			
-	printf("send done\n");
+	printf("send --> sockfd: %d, clientfd: %d, cnt: %d, buffer: \n%s\n",
+			sockfd, fd, cnt, send_buf);
 
 #endif	
 	
@@ -319,4 +276,52 @@ int set_event(int fd, int op, int event) {
 
 	return 1;
 }
+
+
+#if ENABLE_HTTP_RESPONSE
+// http://192.168.113.128/index.html
+// GET /index.html HTTP/1.1
+// http://192.168.113.128/abc.html
+// GET /abc.html HTTP/1.1
+int http_request(connection_t* conn) {
+
+	// conn->rbuffer
+	// conn->rlen
+	
+	return 0;
+}
+
+
+int http_response(connection_t* conn) {
+
+#if 0
+	int filefd = open("index.html", O_RDONLY);
+
+	struct stat stat_buf;
+	fstat(filefd, &stat_buf);
+	
+	conn->wlen = sprintf(conn->wbuffer, 
+			"HTTP/1.1 200 OK\r\n"
+			"Accept-Ranges: bytes\r\n"
+			"Content-Length: %ld\r\n"
+			"Content-Type: text/html\r\n"
+			"Date: Thu, 22 Aug 2024 07:45:31 GMT\r\n\r\n", stat_buf.st_size);
+	int cnt = read(filefd, conn->wbuffer + conn->wlen, BUFFER_LEN - conn->wlen);
+	conn->wlen += cnt;
+	close(filefd);
+
+#else
+	conn->wlen = sprintf(conn->wbuffer, 
+				"HTTP/1.1 200 OK\r\n"
+				"Accept-Ranges: bytes\r\n"
+				"Content-Length: 115\r\n"
+				"Content-Type: text/html\r\n"
+				"Date: Thu, 22 Aug 2024 07:45:31 GMT\r\n\r\n"
+				"<!DOCTYPE html><html><head><title>192.168.113.128</title></head><body><h1> test --> html in 192.168.113.128</h1></body></html>\r\n\r\n");
+				
+#endif
+
+	return conn->wlen;
+}
+#endif
 
