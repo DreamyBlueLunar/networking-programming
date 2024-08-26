@@ -6,7 +6,7 @@
 #include <unistd.h>
 #include <sys/epoll.h>
 
-#define CONN_LEN 	4096
+#define CONN_LEN 	1024
 #define BUFFER_LEN 	1024
 #define DEBUG_LEVEL 1
 #define MOD 		1
