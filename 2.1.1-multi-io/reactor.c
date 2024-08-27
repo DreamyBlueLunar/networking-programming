@@ -33,7 +33,7 @@ struct conn_item {
 };
 
 int epfd = 0;
-struct conn_item connlist[CONN_LEN] = {0};
+struct conn_item connlist[CONN_LEN] = {0}; // larger than 2G, so when compile it, I should add -mcmodel=medium/large.
 struct timeval tv_sta;
 
 int init_server(int port);
