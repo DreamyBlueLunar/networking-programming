@@ -5,12 +5,15 @@
 #include <stdio.h>
 #include <unistd.h>
 #include <sys/epoll.h>
+#include <sys/time.h>
 
-#define CONN_LEN 	1024
+#define CONN_LEN 	1048576
+#define PORT_CNT 	20
 #define BUFFER_LEN 	1024
 #define DEBUG_LEVEL 1
 #define MOD 		1
 #define ADD			0
+#define TIME_SUB_MS(tv1, tv2) ((tv1.tv_sec - tv2.tv_sec) * 1000 + (tv1.tv_usec - tv2.tv_usec) / 1000)
 
 typedef int (*RCALLBACK)(int fd);
 
@@ -29,9 +32,11 @@ struct conn_item {
 	RCALLBACK send_callback;
 };
 
-int epfd = 0, sockfd = 0;
+int epfd = 0;
 struct conn_item connlist[CONN_LEN] = {0};
+struct timeval tv_sta;
 
+int init_server(int port);
 int accept_cb(int fd);
 int recv_cb(int fd);
 int send_cb(int fd);
@@ -72,6 +77,36 @@ int set_event(int fd, int op, int event) {
 	return 1;
 }
 
+
+int init_server(int port) {
+	int sockfd = socket(AF_INET, SOCK_STREAM, 0);
+	if (-1 == sockfd) {
+	#if DEBUG_LEVEL >= 1
+			printf("failed to create sockfd\n");
+	#endif
+		
+		return -1;
+	}
+
+	struct sockaddr_in server_addr;
+	server_addr.sin_family = AF_INET;
+	server_addr.sin_addr.s_addr = htonl(INADDR_ANY);
+	server_addr.sin_port = htons(2048);
+
+	if (-1 == bind(sockfd, (struct sockaddr*)&server_addr, sizeof (struct sockaddr))) {
+	#if DEBUG_LEVEL >= 1
+			printf("failed to bind sockfd and server_addr\n");
+	#endif
+
+		return -1;
+	}
+
+	listen(sockfd, 10);
+
+	return sockfd;
+}
+
+
 /*
  * accept's callback func
  * params:
@@ -99,7 +134,15 @@ int accept_cb(int fd) {
 	connlist[clientfd].send_callback = send_cb;
 
 	set_event(clientfd, ADD, EPOLLIN);
-	
+
+	if (999 == clientfd % 1000) {
+		struct timeval tv_cur;
+		gettimeofday(&tv_cur, NULL);
+		int time_used = TIME_SUB_MS(tv_cur, tv_sta);
+		memcpy(&tv_sta, &tv_cur, sizeof (struct timeval));
+		printf("connections: %d, time_used: %d\n", clientfd, time_used);
+	}
+
 	return clientfd;
 }
 
@@ -155,44 +198,26 @@ int send_cb(int fd) {
 
 int main(void) {
 
-	sockfd = socket(AF_INET, SOCK_STREAM, 0);
-	if (-1 == sockfd) {
-		#if DEBUG_LEVEL >= 1
-			printf("failed to create sockfd\n");
-		#endif
-		
-		return -1;
-	}
-
-	struct sockaddr_in server_addr;
-	server_addr.sin_family = AF_INET;
-	server_addr.sin_addr.s_addr = htonl(INADDR_ANY);
-	server_addr.sin_port = htons(2048);
-
-	if (-1 == bind(sockfd, (struct sockaddr*)&server_addr, sizeof (struct sockaddr))) {
-		#if DEBUG_LEVEL >= 1
-			printf("failed to bind sockfd and server_addr\n");
-		#endif
-
-		return -1;
-	}
-
-	listen(sockfd, 10);
-
-	connlist[sockfd].fd = sockfd;
-	connlist[sockfd].recv_t.accept_callback = accept_cb;
+	int port_cnt = PORT_CNT;
+	unsigned short port = 2048;
 
 	epfd = epoll_create(1);
 	if (-1 == epfd) {
 		#if DEBUG_LEVEL >= 1
 			printf("failed to create epfd\n");
 		#endif
-
+				
 		return -1;
 	}
 
-	set_event(sockfd, ADD, EPOLLIN);
-
+	for (int i = 0; i < port_cnt; i ++) {
+		int sockfd = init_server(port + i);
+		connlist[sockfd].fd = sockfd;
+		connlist[sockfd].recv_t.accept_callback = accept_cb;
+		set_event(sockfd, ADD, EPOLLIN);
+	}
+	
+	gettimeofday(&tv_sta, NULL);
 	struct epoll_event events[1024] = {0};
 	memset(events, 0, sizeof events);
 
