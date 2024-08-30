@@ -9,7 +9,7 @@
 
 #define CONN_LEN 	1048576
 #define PORT_CNT 	20
-#define BUFFER_LEN 	1024
+#define BUFFER_LEN 	512
 #define DEBUG_LEVEL 1
 #define MOD 		1
 #define ADD			0
@@ -33,10 +33,13 @@ struct conn_item {
 };
 
 int epfd = 0;
-struct conn_item connlist[CONN_LEN] = {0}; // larger than 2G, so when compile it, I should add -mcmodel=medium/large.
-struct timeval tv_sta;
+struct conn_item connlist[CONN_LEN] = {0};
 
-int init_server(int port);
+#if DEBUG_LEVEL >= 1
+	struct timeval tv_sta;
+#endif
+
+int init_server(unsigned short port);
 int accept_cb(int fd);
 int recv_cb(int fd);
 int send_cb(int fd);
@@ -78,7 +81,7 @@ int set_event(int fd, int op, int event) {
 }
 
 
-int init_server(int port) {
+int init_server(unsigned short port) {
 	int sockfd = socket(AF_INET, SOCK_STREAM, 0);
 	if (-1 == sockfd) {
 	#if DEBUG_LEVEL >= 1
@@ -91,7 +94,7 @@ int init_server(int port) {
 	struct sockaddr_in server_addr;
 	server_addr.sin_family = AF_INET;
 	server_addr.sin_addr.s_addr = htonl(INADDR_ANY);
-	server_addr.sin_port = htons(2048);
+	server_addr.sin_port = htons(port);
 
 	if (-1 == bind(sockfd, (struct sockaddr*)&server_addr, sizeof (struct sockaddr))) {
 	#if DEBUG_LEVEL >= 1
@@ -135,13 +138,15 @@ int accept_cb(int fd) {
 
 	set_event(clientfd, ADD, EPOLLIN);
 
-	if (999 == clientfd % 1000) {
-		struct timeval tv_cur;
-		gettimeofday(&tv_cur, NULL);
-		int time_used = TIME_SUB_MS(tv_cur, tv_sta);
-		memcpy(&tv_sta, &tv_cur, sizeof (struct timeval));
-		printf("connections: %d, time_used: %d\n", clientfd, time_used);
-	}
+	#if DEBUG_LEVEL >= 1
+		if (999 == clientfd % 1000) {
+			struct timeval tv_cur;
+			gettimeofday(&tv_cur, NULL);
+			int time_used = TIME_SUB_MS(tv_cur, tv_sta);
+			memcpy(&tv_sta, &tv_cur, sizeof (struct timeval));
+			printf("connections: %d, time_used: %d\n", clientfd, time_used);
+		}
+	#endif
 
 	return clientfd;
 }
@@ -216,8 +221,11 @@ int main(void) {
 		connlist[sockfd].recv_t.accept_callback = accept_cb;
 		set_event(sockfd, ADD, EPOLLIN);
 	}
-	
-	gettimeofday(&tv_sta, NULL);
+
+	#if DEBUG_LEVEL >= 1
+		gettimeofday(&tv_sta, NULL);
+	#endif
+
 	struct epoll_event events[1024] = {0};
 	memset(events, 0, sizeof events);
 
