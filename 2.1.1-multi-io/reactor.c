@@ -1,3 +1,6 @@
+// implementation of reactor
+// uploaded to github
+// 1,000,000 connections`
 #include <string.h>
 #include <errno.h>
 #include <sys/socket.h>
@@ -8,6 +11,7 @@
 #include <sys/time.h>
 
 #define CONN_LEN 	1048576
+#define PORT 		2048
 #define PORT_CNT 	20
 #define BUFFER_LEN 	512
 #define DEBUG_LEVEL 1
@@ -204,7 +208,7 @@ int send_cb(int fd) {
 int main(void) {
 
 	int port_cnt = PORT_CNT;
-	unsigned short port = 2048;
+	unsigned short port = PORT;
 
 	epfd = epoll_create(1);
 	if (-1 == epfd) {
