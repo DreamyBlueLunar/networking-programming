@@ -1,3 +1,10 @@
+/*
+ * 这个代码目前没法执行，除非改一下read函数的定义
+ * 侧重于描述利用hook和协程实现webserver的一个思路
+ */
+
+
+
 #define _GNU_SOURCE
 
 #include <dlfcn.h>
@@ -23,6 +30,22 @@ typedef ssize_t (*write_t)(int fd, const void *buf, size_t count);
 write_t write_f = NULL;
 
 ssize_t read(int fd, void *buf, size_t count) {
+	struct pollfd fds[1] = {0};
+
+	fds[0].fd = fd;
+	fds[0].events = POLLIN;
+
+	int res = poll(fds, 1, 0);
+	if (res <= 0) { //
+
+
+		// fd --> epoll_ctl();
+
+		swapcontext(); // fd --> ctx
+		
+	}
+	// io
+	
 	ssize_t ret = read_f(fd, buf, count);
 	printf("hook-read: %s\n", (char*)buf);
 	return ret;
