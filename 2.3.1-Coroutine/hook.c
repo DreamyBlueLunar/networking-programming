@@ -45,7 +45,7 @@ ssize_t read(int fd, void *buf, size_t count) {
 		
 	}
 	// io
-	
+
 	ssize_t ret = read_f(fd, buf, count);
 	printf("hook-read: %s\n", (char*)buf);
 	return ret;
