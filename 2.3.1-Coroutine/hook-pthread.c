@@ -1,6 +1,5 @@
 /*
- * 这个代码目前没法执行，除非改一下read函数的定义
- * 侧重于描述利用hook和协程实现webserver的一个思路
+ * 多线程
  */
 
 
@@ -15,6 +14,7 @@
 #include <unistd.h>
 #include <fcntl.h>
 #include <errno.h>
+#include <pthread.h>
 
 #include <sys/socket.h>
 #include <netinet/in.h>
@@ -30,24 +30,6 @@ typedef ssize_t (*write_t)(int fd, const void *buf, size_t count);
 write_t write_f = NULL;
 
 ssize_t read(int fd, void *buf, size_t count) {
-#if 0
-	struct pollfd fds[1] = {0};
-
-	fds[0].fd = fd;
-	fds[0].events = POLLIN;
-
-	int res = poll(fds, 1, 0);
-	if (res <= 0) { //
-
-
-		// fd --> epoll_ctl();
-
-		swapcontext(); // fd --> ctx
-		
-	}
-	// io
-#endif
-
 	ssize_t ret = read_f(fd, buf, count);
 	printf("hook-read: %s\n", (char*)buf);
 	return ret;
@@ -66,6 +48,23 @@ void init_hook(void) {
 	if (!write_f) {
 		write_f = dlsym(RTLD_NEXT, "write");
 	}
+}
+
+void *entry(void *arg) {
+	int clientfd = *(int *)arg;
+        while (1) {
+	        char buffer[128] = {0};
+	        int cnt = read(clientfd, buffer, sizeof buffer);
+
+	        if (0 == cnt) {
+	        	perror("client disconnection");
+				break;
+	        }
+
+	        write(clientfd, buffer, cnt);
+        }
+	
+	close(clientfd);
 }
 
 int main(void) {
@@ -93,19 +92,14 @@ int main(void) {
 	printf("accepted\n");
 
 	while (1) {
-		char buffer[128] = {0};
-		int cnt = read(clientfd, buffer, sizeof buffer);
-
-		if (0 == cnt) {
-			perror("client disconnection");
-			break;
-		}
-
-		write(clientfd, buffer, cnt);
+		struct sockaddr_in client_addr;
+        socklen_t len = sizeof client_addr;
+        int clientfd = accept(sockfd, (struct sockaddr*)&client_addr, &len);
+        printf("accepted\n");
+		
+		pthread_t thid;
+		pthread_create(&thid, NULL, entry, &clientfd);
 	}
-	
-	getchar();
-	close(clientfd);
 
     return 0;
 }
