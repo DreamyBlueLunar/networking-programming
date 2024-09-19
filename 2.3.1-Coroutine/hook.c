@@ -30,6 +30,7 @@ typedef ssize_t (*write_t)(int fd, const void *buf, size_t count);
 write_t write_f = NULL;
 
 ssize_t read(int fd, void *buf, size_t count) {
+#if 0
 	struct pollfd fds[1] = {0};
 
 	fds[0].fd = fd;
@@ -45,6 +46,7 @@ ssize_t read(int fd, void *buf, size_t count) {
 		
 	}
 	// io
+#endif
 
 	ssize_t ret = read_f(fd, buf, count);
 	printf("hook-read: %s\n", (char*)buf);
