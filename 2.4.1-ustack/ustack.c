@@ -66,7 +66,6 @@ static int ustack_encode_udp_pkt(uint8_t *msg, char *data, uint16_t length) {
 	return length;
 }
 
-
 static struct rte_mbuf *ustack_send(struct rte_mempool *mbuf_pool, char *msg, uint16_t msg_len) {
 	// total_length = msg_len + 14 + 20 + 8
 	int total_length = msg_len + sizeof(struct rte_ether_hdr) + 
